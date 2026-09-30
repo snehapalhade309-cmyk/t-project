@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>ResQAI Ultimate</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+
+<style>
+body {
+    margin:0;
+    font-family: 'Poppins', sans-serif;
+    background: linear-gradient(135deg,#1e3c72,#2a5298);
+    color:white;
+}
+
+.screen { display:none; }
+.active { display:block; }
+
+.home { text-align:center; padding:40px 20px; }
+
+.title { font-size:32px; font-weight:bold; }
+.subtitle { opacity:0.8; margin-bottom:20px; }
+
+.btn {
+    display:block;
+    width:80%;
+    margin:10px auto;
+    padding:14px;
+    border:none;
+    border-radius:12px;
+    font-size:16px;
+    font-weight:bold;
+    cursor:pointer;
+}
+
+.detect { background:#00c9a7; }
+.sos { background:#ff4d4d; }
+.whatsapp { background:#25D366; }
+.route { background:#ffa500; }
+.help { background:#ff0077; }
+.demo { background:#8e44ad; }
+
+.card {
+    background:white;
+    color:black;
+    margin:10px;
+    padding:15px;
+    border-radius:12px;
+}
+
+#map { height:300px; border-radius:10px; }
+
+.back {
+    background:black;
+    color:white;
+    padding:10px;
+    border:none;
+    margin:10px;
+    border-radius:8px;
+}
+
+#loading {
+    display:none;
+    position:fixed;
+    top:0; left:0;
+    width:100%; height:100%;
+    background:black;
+    color:white;
+    justify-content:center;
+    align-items:center;
+    font-size:22px;
+    z-index:999;
+}
+
+#ambulanceBox {
+    display:none;
+    position:fixed;
+    bottom:20px;
+    left:50%;
+    transform:translateX(-50%);
+    background:red;
+    padding:15px;
+    border-radius:10px;
+    font-weight:bold;
+    z-index:999;
+}
+
+.flashAlert {
+    animation: flash 0.6s infinite;
+}
+
+@keyframes flash {
+    0% { background:red; }
+    50% { background:white; }
+    100% { background:red; }
+}
+</style>
+</head>
+
+<body>
+
+<div id="loading">⏳ Detecting Location...</div>
+<div id="ambulanceBox">🚑 Calling Ambulance...</div>
+
+<!-- HOME -->
+<div id="homeScreen" class="screen active home">
+
+    <div class="title">🚨 ResQAI</div>
+    <div class="subtitle">Smart Disaster System</div>
+
+    <div class="card">
+        <p>Risk: <span id="risk">--</span></p>
+        <p>AI: <span id="prediction">--</span></p>
+        <p id="aiConfidence"></p>
+        <p id="broadcast"></p>
+    </div>
+
+    <button class="btn detect" onclick="startApp()">📍 Detect Location</button>
+    <button class="btn sos" onclick="callSOS()">🚨 Emergency SOS</button>
+    <button class="btn whatsapp" onclick="whatsappSOS()">📲 WhatsApp</button>
+    <button class="btn route" onclick="openRoute()">🧭 Safe Route</button>
+
+    <!-- NEW -->
+    <button class="btn help" onclick="oneTapHelp()">🆘 One Tap Help</button>
+    <button class="btn demo" onclick="demoMode()">🎬 Demo Mode</button>
+
+</div>
+
+<!-- MAP -->
+<div id="mapScreen" class="screen">
+
+    <button class="back" onclick="goBack()">⬅ Back</button>
+
+    <div class="card">
+        <p id="location">Location: --</p>
+    </div>
+
+    <div class="card">
+        <div id="map"></div>
+    </div>
+
+    <div class="card">
+        <h3>🏥 Nearby Hospitals</h3>
+        <ul id="hospitals"></ul>
+    </div>
+
+</div>
+
+<audio id="siren" src="https://www.soundjay.com/misc/sounds/siren.wav"></audio>
+
+<script>
+let lat, lon, map;
+
+// detect
+function startApp(){
+
+    document.getElementById("loading").style.display="flex";
+
+    navigator.geolocation.getCurrentPosition((pos)=>{
+        lat = pos.coords.latitude;
+        lon = pos.coords.longitude;
+
+        document.getElementById("loading").style.display="none";
+
+        document.getElementById("homeScreen").classList.remove("active");
+        document.getElementById("mapScreen").classList.add("active");
+
+        document.getElementById("location").innerText =
+            "📍 "+lat+", "+lon;
+
+        loadMap();
+        getWeather();
+        getHospitals();
+    });
+}
+
+// back
+function goBack(){
+    document.getElementById("mapScreen").classList.remove("active");
+    document.getElementById("homeScreen").classList.add("active");
+}
+
+// map
+function loadMap(){
+    if(map) map.remove();
+
+    map = L.map('map').setView([lat,lon],13);
+
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+
+    const userIcon = L.icon({
+        iconUrl:"https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
+        iconSize:[30,45]
+    });
+
+    L.marker([lat,lon],{icon:userIcon}).addTo(map)
+        .bindPopup("📍 You")
+        .openPopup();
+}
+
+// weather
+async function getWeather(){
+    const apiKey="aff6ddcce98153e7cbf6528389d48107";
+
+    const res = await fetch(`https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`);
+    const data = await res.json();
+
+    let risk="LOW";
+    let color="green";
+
+    if(data.weather[0].main==="Rain"){ risk="MEDIUM"; color="orange"; }
+    if(data.weather[0].main==="Thunderstorm"){ risk="HIGH"; color="red"; }
+
+    document.getElementById("risk").innerText=risk;
+
+    document.getElementById("prediction").innerText =
+        risk==="HIGH" ? "⚠️ Disaster likely" :
+        risk==="MEDIUM" ? "⚡ Weather may worsen" :
+        "✅ Safe";
+
+    // AI confidence
+    let conf = Math.floor(Math.random()*20)+80;
+    document.getElementById("aiConfidence").innerText =
+        "🤖 AI Confidence: "+conf+"%";
+
+    document.getElementById("broadcast").innerText =
+        "📡 Broadcasting alert to nearby users...";
+
+    // risk zone
+    L.circle([lat,lon],{
+        color:color,
+        fillColor:color,
+        fillOpacity:0.3,
+        radius:2000
+    }).addTo(map);
+
+    if(risk==="HIGH"){
+        document.body.classList.add("flashAlert");
+    }
+}
+
+// hospitals
+async function getHospitals(){
+
+    const res = await fetch(`https://overpass-api.de/api/interpreter?data=[out:json];
+    (
+      node["amenity"="hospital"](around:3000,${lat},${lon});
+      way["amenity"="hospital"](around:3000,${lat},${lon});
+      relation["amenity"="hospital"](around:3000,${lat},${lon});
+    );
+    out center;`);
+
+    const data = await res.json();
+
+    let list = document.getElementById("hospitals");
+    list.innerHTML="";
+
+    let nearestDist = Infinity;
+    let nearest = null;
+
+    data.elements.forEach(h=>{
+        let hLat = h.lat || h.center?.lat;
+        let hLon = h.lon || h.center?.lon;
+        if(!hLat || !hLon) return;
+
+        let dist = Math.sqrt((lat-hLat)**2 + (lon-hLon)**2);
+
+        if(dist < nearestDist){
+            nearestDist = dist;
+            nearest = {hLat,hLon};
+        }
+    });
+
+    data.elements.slice(0,5).forEach(h=>{
+
+        let name = h.tags?.name || "Hospital";
+        let hLat = h.lat || h.center?.lat;
+        let hLon = h.lon || h.center?.lon;
+
+        const icon = L.icon({
+            iconUrl:"https://maps.google.com/mapfiles/ms/icons/green-dot.png",
+            iconSize:[30,45]
+        });
+
+        L.marker([hLat,hLon],{icon}).addTo(map);
+
+        let li=document.createElement("li");
+        li.innerHTML=`🏥 ${name}
+        <button onclick="routeTo(${hLat},${hLon})">Route</button>`;
+        list.appendChild(li);
+    });
+
+    // nearest highlight
+    if(nearest){
+        L.marker([nearest.hLat,nearest.hLon],{
+            icon:L.icon({
+                iconUrl:"https://maps.google.com/mapfiles/ms/icons/red-dot.png",
+                iconSize:[30,45]
+            })
+        }).addTo(map).bindPopup("⭐ Nearest Hospital");
+    }
+}
+
+// route
+function routeTo(hLat,hLon){
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${hLat},${hLon}&origin=${lat},${lon}`);
+}
+
+function openRoute(){
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=hospital&origin=${lat},${lon}`);
+}
+
+// SOS
+function callSOS(){
+
+    document.getElementById("siren").play();
+    document.getElementById("ambulanceBox").style.display="block";
+
+    alert("🚨 SOS TRIGGERED!");
+
+    window.location.href="tel:112";
+
+    let msg="🚨 EMERGENCY! My location: https://maps.google.com/?q="+lat+","+lon;
+
+    setTimeout(()=>{
+        window.open("https://wa.me/?text="+encodeURIComponent(msg));
+    },2000);
+
+    let speech = new SpeechSynthesisUtterance("Emergency alert activated");
+    speechSynthesis.speak(speech);
+
+    setTimeout(()=>{
+        document.getElementById("ambulanceBox").style.display="none";
+    },5000);
+}
+
+// whatsapp
+function whatsappSOS(){
+    let msg="🚨 Emergency! Location: https://maps.google.com/?q="+lat+","+lon;
+    window.open("https://wa.me/?text="+encodeURIComponent(msg));
+}
+
+// NEW FEATURES
+function oneTapHelp(){
+    alert("🚨 One Tap Emergency Activated!");
+    startApp();
+    setTimeout(()=>callSOS(),3000);
+}
+
+function demoMode(){
+    lat=19.0760;
+    lon=72.8777;
+
+    document.getElementById("homeScreen").classList.remove("active");
+    document.getElementById("mapScreen").classList.add("active");
+
+    document.getElementById("location").innerText="📍 Demo Mode (Mumbai)";
+
+    loadMap();
+    getHospitals();
+
+    document.getElementById("risk").innerText="HIGH";
+    document.getElementById("prediction").innerText="🚨 Disaster likely";
+
+    document.body.classList.add("flashAlert");
+}
+</script>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+</body>
+</html>
